@@ -52,7 +52,7 @@ export default function LiabilitiesPage() {
 
     const fetchData = useCallback(async () => {
         const [liabRes, payRes, bankRes] = await Promise.all([
-            supabase.from('liabilities').select('*').eq('is_active', true).order('created_at'),
+            supabase.from('liabilities').select('*').order('created_at'),
             supabase.from('liability_payments').select('*').order('payment_date', { ascending: false }),
             supabase.from('banks').select('id,name,account_type,current_balance').eq('is_active', true).order('sort_order'),
         ])
@@ -186,12 +186,26 @@ export default function LiabilitiesPage() {
             const bank = banks.find((b) => b.id === p.bank_id)
             if (bank) await supabase.from('banks').update({ current_balance: bank.current_balance + (p.amount || 0) }).eq('id', p.bank_id)
         }
+        // Auto-reactivate liability if its balance becomes > 0
+        const liab = liabilities.find(l => l.id === p.liability_id)
+        if (liab && !liab.is_active) {
+            const remainingPayments = payments.filter(pay => pay.id !== p.id)
+            const stat = computeLiabilityStatus(liab, remainingPayments)
+            if (stat.remaining > 0) {
+                await supabase.from('liabilities').update({ is_active: true }).eq('id', liab.id)
+            }
+        }
+
         fetchData()
     }
 
+    const visibleLiabilities = liabilities.filter(l => l.is_active)
+    const activeLiabilities = visibleLiabilities.filter(l => computeLiabilityStatus(l, payments).remaining > 0)
+    const completedLiabilities = visibleLiabilities.filter(l => computeLiabilityStatus(l, payments).remaining <= 0)
+
     // Net worth
     const totalAssets = banks.filter((b) => b.account_type !== 'liability').reduce((s, b) => s + (b.current_balance || 0), 0)
-    const totalLiabRemaining = liabilities.reduce((s, l) => {
+    const totalLiabRemaining = activeLiabilities.reduce((s, l) => {
         const status = computeLiabilityStatus(l, payments)
         return s + (status.remaining || 0)
     }, 0)
@@ -216,14 +230,14 @@ export default function LiabilitiesPage() {
                     {msg && <div style={{ textAlign: 'center', marginBottom: 8, color: '#1DB98A', fontWeight: 600 }}>{msg}</div>}
                     {payMsg && <div style={{ textAlign: 'center', marginBottom: 8, color: '#1DB98A', fontWeight: 600 }}>{payMsg}</div>}
 
-                    {liabilities.length === 0 && (
+                    {activeLiabilities.length === 0 && (
                         <GlassCard style={{ textAlign: 'center', padding: 32 }}>
                             <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
                             <div style={{ color: 'rgba(255,255,255,0.4)' }}>No active liabilities!</div>
                         </GlassCard>
                     )}
 
-                    {liabilities.map((l) => {
+                    {activeLiabilities.map((l) => {
                         const tInfo = typeInfo(l.liability_type)
                         const status = computeLiabilityStatus(l, payments)
                         const liabPayments = payments.filter((p) => p.liability_id === l.id).sort((a, b) => b.payment_date.localeCompare(a.payment_date))
@@ -321,6 +335,24 @@ export default function LiabilitiesPage() {
             {/* HISTORY */}
             {tab === 'History' && (
                 <div>
+                    {completedLiabilities.length > 0 && (
+                        <GlassCard style={{ marginBottom: 12 }}>
+                            <div style={{ fontWeight: 700, marginBottom: 14 }}>Completed Liabilities 🎉</div>
+                            {completedLiabilities.map(l => {
+                                const tInfo = typeInfo(l.liability_type)
+                                return (
+                                    <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.05)' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: 13, textDecoration: 'line-through', color: 'rgba(255,255,255,0.5)' }}>{l.name}</div>
+                                            <div style={{ fontSize: 11, color: tInfo.color }}>Fully Paid Off</div>
+                                        </div>
+                                        <button className="btn btn-red" style={{ padding: '4px 6px' }} onClick={() => deleteLiability(l.id)}><Trash2 size={11} /></button>
+                                    </div>
+                                )
+                            })}
+                        </GlassCard>
+                    )}
+
                     <GlassCard>
                         <div style={{ fontWeight: 700, marginBottom: 14 }}>All Payments</div>
                         {payments.length === 0 && <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', padding: 24 }}>No payments yet</div>}
@@ -369,7 +401,8 @@ export default function LiabilitiesPage() {
                             <TrendingDown size={15} color="#E05577" style={{ display: 'inline', marginRight: 6 }} />
                             Liability Breakdown
                         </div>
-                        {liabilities.map((l) => {
+                        {activeLiabilities.length === 0 && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>No active liabilities</div>}
+                        {activeLiabilities.map((l) => {
                             const tInfo = typeInfo(l.liability_type)
                             const status = computeLiabilityStatus(l, payments)
                             const pct = (l.priority_percent || 0)

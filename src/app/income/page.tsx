@@ -175,20 +175,32 @@ export default function IncomePage() {
         try {
             const { data: currentPrefs } = await supabase.from('preferences').select('*').eq('id', 'default').single();
 
+            let targetRecordId = mainRecordId;
             let oldDist = 0;
             let oldFuelAmt = 0;
             let oldCashVal = 0;
             let oldWalletVal = 0;
             let oldApp = app;
 
-            if (mainRecordId) {
-                const oldRec = await supabase.from('income_records').select('total_distance, fuel_expense, cash_on_hand, wallet_balance, app').eq('id', mainRecordId).maybeSingle();
-                if (oldRec.data) {
-                    oldDist = oldRec.data.total_distance || 0;
-                    oldFuelAmt = oldRec.data.fuel_expense || 0;
-                    oldCashVal = oldRec.data.cash_on_hand || 0;
-                    oldWalletVal = oldRec.data.wallet_balance || 0;
-                    oldApp = oldRec.data.app || app;
+            // Strict check to prevent multiple entries for the same day
+            const existingRes = await supabase.from('income_records').select('id, total_distance, fuel_expense, cash_on_hand, wallet_balance, app')
+                .eq('date', selectedDate).eq('income_type', 'main').order('created_at', { ascending: false });
+
+            if (existingRes.data && existingRes.data.length > 0) {
+                const primary = existingRes.data[0];
+                targetRecordId = primary.id;
+
+                oldDist = primary.total_distance || 0;
+                oldFuelAmt = primary.fuel_expense || 0;
+                oldCashVal = primary.cash_on_hand || 0;
+                oldWalletVal = primary.wallet_balance || 0;
+                oldApp = primary.app || app;
+
+                // Clean up any stray duplicates enforcing strict 1-record rule
+                if (existingRes.data.length > 1) {
+                    for (let i = 1; i < existingRes.data.length; i++) {
+                        await supabase.from('income_records').delete().eq('id', existingRes.data[i].id);
+                    }
                 }
             }
 
@@ -204,8 +216,9 @@ export default function IncomePage() {
                 wallet_balance: walletVal,
                 fuel_expense: fuel || null,
             }
-            if (mainRecordId) {
-                await supabase.from('income_records').update(row).eq('id', mainRecordId)
+
+            if (targetRecordId) {
+                await supabase.from('income_records').update(row).eq('id', targetRecordId)
             } else {
                 await supabase.from('income_records').insert(row)
             }
