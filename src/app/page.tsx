@@ -27,13 +27,28 @@ export default function DashboardPage() {
   const today = todayStr()
 
   const fetchData = useCallback(async () => {
-    const [prefsRes, banksRes, incomeRes] = await Promise.all([
+    const [prefsRes, banksRes, incomeRes, latestIncRes] = await Promise.all([
       supabase.from('preferences').select('*').eq('id', 'default').single(),
       supabase.from('banks').select('id,name,account_type,current_balance').eq('is_active', true).order('sort_order'),
       supabase.from('income_records').select('start_km,end_km,daily_earning,amount,income_type').eq('date', today),
+      supabase.from('income_records').select('app, wallet_balance, date').eq('income_type', 'main').order('date', { ascending: false })
     ])
     if (prefsRes.data) { setPrefs(prefsRes.data); setServiceCost(String(prefsRes.data.bike_service_cost_monthly || 3000)) }
-    if (banksRes.data) setBanks(banksRes.data)
+
+    if (banksRes.data) {
+      let processedBanks = banksRes.data;
+      if (latestIncRes.data) {
+        const latestUber = latestIncRes.data.find((r) => r.app === 'Uber')
+        const latestPickMe = latestIncRes.data.find((r) => r.app === 'PickMe')
+        processedBanks = processedBanks.map((b) => {
+          if (b.name === 'Uber Wallet' && latestUber) return { ...b, current_balance: latestUber.wallet_balance || 0 }
+          if (b.name === 'PickMe Wallet' && latestPickMe) return { ...b, current_balance: latestPickMe.wallet_balance || 0 }
+          return b
+        })
+      }
+      setBanks(processedBanks)
+    }
+
     if (incomeRes.data) setTodayIncome(incomeRes.data)
   }, [today])
 

@@ -51,14 +51,27 @@ export default function LiabilitiesPage() {
     const [msg, setMsg] = useState('')
 
     const fetchData = useCallback(async () => {
-        const [liabRes, payRes, bankRes] = await Promise.all([
+        const [liabRes, payRes, bankRes, latestIncRes] = await Promise.all([
             supabase.from('liabilities').select('*').order('created_at'),
             supabase.from('liability_payments').select('*').order('payment_date', { ascending: false }),
             supabase.from('banks').select('id,name,account_type,current_balance').eq('is_active', true).order('sort_order'),
+            supabase.from('income_records').select('app, wallet_balance, date').eq('income_type', 'main').order('date', { ascending: false })
         ])
         if (liabRes.data) setLiabilities(liabRes.data)
         if (payRes.data) setPayments(payRes.data)
-        if (bankRes.data) setBanks(bankRes.data)
+        if (bankRes.data) {
+            let processedBanks = bankRes.data;
+            if (latestIncRes.data) {
+                const latestUber = latestIncRes.data.find((r) => r.app === 'Uber')
+                const latestPickMe = latestIncRes.data.find((r) => r.app === 'PickMe')
+                processedBanks = processedBanks.map((b) => {
+                    if (b.name === 'Uber Wallet' && latestUber) return { ...b, current_balance: latestUber.wallet_balance || 0 }
+                    if (b.name === 'PickMe Wallet' && latestPickMe) return { ...b, current_balance: latestPickMe.wallet_balance || 0 }
+                    return b
+                })
+            }
+            setBanks(processedBanks)
+        }
     }, [])
 
     useEffect(() => { fetchData() }, [fetchData])

@@ -47,12 +47,26 @@ export default function IncomePage() {
     const today = todayStr()
 
     const fetchBase = useCallback(async () => {
-        const [banksRes, prefsRes, catsRes] = await Promise.all([
+        const [banksRes, prefsRes, catsRes, latestIncRes] = await Promise.all([
             supabase.from('banks').select('id,name,account_type,current_balance').eq('is_active', true).order('sort_order'),
             supabase.from('preferences').select('*').eq('id', 'default').single(),
             supabase.from('side_hustle_categories').select('*').order('name'),
+            supabase.from('income_records').select('app, wallet_balance, date').eq('income_type', 'main').order('date', { ascending: false })
         ])
-        if (banksRes.data) setBanks(banksRes.data)
+
+        if (banksRes.data) {
+            let processedBanks = banksRes.data;
+            if (latestIncRes.data) {
+                const latestUber = latestIncRes.data.find((r) => r.app === 'Uber')
+                const latestPickMe = latestIncRes.data.find((r) => r.app === 'PickMe')
+                processedBanks = processedBanks.map((b) => {
+                    if (b.name === 'Uber Wallet' && latestUber) return { ...b, current_balance: latestUber.wallet_balance || 0 }
+                    if (b.name === 'PickMe Wallet' && latestPickMe) return { ...b, current_balance: latestPickMe.wallet_balance || 0 }
+                    return b
+                })
+            }
+            setBanks(processedBanks)
+        }
         if (prefsRes.data) setPrefs(prefsRes.data)
         if (catsRes.data) setSideCategories(catsRes.data)
     }, [])

@@ -45,12 +45,25 @@ export default function ExpensesPage() {
     const QUICK_AMOUNTS = [100, 200, 500, 1000, 1500]
 
     const fetchBase = useCallback(async () => {
-        const [b, p, cats] = await Promise.all([
+        const [b, p, cats, latestIncRes] = await Promise.all([
             supabase.from('banks').select('id,name,account_type,current_balance').eq('is_active', true).order('sort_order'),
             supabase.from('preferences').select('*').eq('id', 'default').single(),
             supabase.from('expense_categories').select('*').order('name'),
+            supabase.from('income_records').select('app, wallet_balance, date').eq('income_type', 'main').order('date', { ascending: false })
         ])
-        if (b.data) setBanks(b.data)
+        if (b.data) {
+            let processedBanks = b.data;
+            if (latestIncRes.data) {
+                const latestUber = latestIncRes.data.find((r) => r.app === 'Uber')
+                const latestPickMe = latestIncRes.data.find((r) => r.app === 'PickMe')
+                processedBanks = processedBanks.map((bank) => {
+                    if (bank.name === 'Uber Wallet' && latestUber) return { ...bank, current_balance: latestUber.wallet_balance || 0 }
+                    if (bank.name === 'PickMe Wallet' && latestPickMe) return { ...bank, current_balance: latestPickMe.wallet_balance || 0 }
+                    return bank
+                })
+            }
+            setBanks(processedBanks)
+        }
         if (p.data) setPrefs(p.data)
         if (cats.data) {
             setCustomCategories(cats.data)

@@ -38,8 +38,30 @@ export default function BankingPage() {
     const [transferMsg, setTransferMsg] = useState('')
 
     const fetchBanks = useCallback(async () => {
-        const res = await supabase.from('banks').select('*').eq('is_active', true).order('sort_order')
-        if (res.data) setBanks(res.data)
+        const [banksRes, latestIncRes] = await Promise.all([
+            supabase.from('banks').select('*').eq('is_active', true).order('sort_order'),
+            supabase.from('income_records').select('app, wallet_balance, date').eq('income_type', 'main').order('date', { ascending: false })
+        ])
+
+        if (banksRes.data) {
+            let processedBanks = banksRes.data
+            if (latestIncRes.data) {
+                // Find latest chronological records for each app
+                const latestUber = latestIncRes.data.find((r) => r.app === 'Uber')
+                const latestPickMe = latestIncRes.data.find((r) => r.app === 'PickMe')
+
+                processedBanks = processedBanks.map((b) => {
+                    if (b.name === 'Uber Wallet' && latestUber) {
+                        return { ...b, current_balance: latestUber.wallet_balance || 0 }
+                    }
+                    if (b.name === 'PickMe Wallet' && latestPickMe) {
+                        return { ...b, current_balance: latestPickMe.wallet_balance || 0 }
+                    }
+                    return b
+                })
+            }
+            setBanks(processedBanks)
+        }
     }, [])
 
     const fetchTransfers = useCallback(async () => {
@@ -89,13 +111,17 @@ export default function BankingPage() {
         else if (bank.name.includes('Wallet')) {
             const appType = bank.name.split(' ')[0]; // Uber or PickMe
             const incList = incomes.data || [];
-            for (const inc of incList) {
-                if (inc.app === appType) {
-                    const wVal = inc.wallet_balance || 0;
-                    if (Math.abs(wVal) > 0.01) {
-                        rows.push({ id: inc.id, date: inc.date, description: `${appType} Settlement`, type: 'App Wallet', amount: wVal })
-                    }
+
+            // Sort ascending to calculate daily differences
+            const sortedInc = [...incList].filter(i => i.app === appType).sort((a, b) => a.date.localeCompare(b.date));
+            let prevW = bank.starting_balance || 0;
+            for (const inc of sortedInc) {
+                const wVal = inc.wallet_balance || 0;
+                const change = wVal - prevW;
+                if (Math.abs(change) > 0.01) {
+                    rows.push({ id: inc.id, date: inc.date, description: `${appType} Settlement`, type: 'App Wallet', amount: change });
                 }
+                prevW = wVal;
             }
         }
 
