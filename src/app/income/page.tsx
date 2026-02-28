@@ -43,6 +43,7 @@ export default function IncomePage() {
     const [sideMsg, setSideMsg] = useState('')
     const [showCatModal, setShowCatModal] = useState(false)
     const [newCatName, setNewCatName] = useState('')
+    const [dayExpensesTotal, setDayExpensesTotal] = useState(0)
 
     const today = todayStr()
 
@@ -80,11 +81,23 @@ export default function IncomePage() {
     }, [selectedDate])
 
     const fetchForDate = useCallback(async () => {
+        // Daily Expenses for selected date
+        const expRes = await supabase.from('daily_expenses').select('amount, category').eq('date', selectedDate)
+        let otherExp = 0;
+        let dbFuel = 0;
+        if (expRes.data) {
+            otherExp = expRes.data.filter(e => e.category !== 'fuel').reduce((s, e) => s + (e.amount || 0), 0);
+            const fuelRow = expRes.data.find(e => e.category === 'fuel' || e.category === 'Fuel'); // Handle lowercase or uppercase
+            if (fuelRow) dbFuel = fuelRow.amount || 0;
+        }
+        setDayExpensesTotal(otherExp);
+
         // Main income for selected date
         const mainRes = await supabase.from('income_records').select('*')
             .eq('date', selectedDate).eq('income_type', 'main')
             .order('created_at', { ascending: false })
             .limit(1).maybeSingle()
+
         if (mainRes.data) {
             setMainRecordId(mainRes.data.id)
             setApp(mainRes.data.app || 'Uber')
@@ -93,11 +106,12 @@ export default function IncomePage() {
             setDailyEarning(String(mainRes.data.daily_earning || ''))
             setCashOnHand(String(mainRes.data.cash_on_hand || ''))
             setWalletBalance(String(mainRes.data.wallet_balance || ''))
-            setFuelExpense(String(mainRes.data.fuel_expense || ''))
+            setFuelExpense(String(mainRes.data.fuel_expense || dbFuel || ''))
         } else {
             setMainRecordId(null)
             setApp('Uber')
-            setDailyEarning(''); setCashOnHand(''); setWalletBalance(''); setFuelExpense('')
+            setDailyEarning(''); setCashOnHand(''); setWalletBalance('');
+            setFuelExpense(dbFuel ? String(dbFuel) : '')
             // Auto-fill start_km from yesterday's end_km
             if (prevEndKm !== null) setStartKm(String(prevEndKm))
             else setStartKm('')
@@ -170,19 +184,22 @@ export default function IncomePage() {
     const cashVal = parseFloat(cashOnHand) || 0
     const walletChange = walletVal - prevWallet
     const actualAccounted = cashVal + walletChange
-    const balanceDiff = actualAccounted - appEarning
     const fuel = parseFloat(fuelExpense) || 0
+
+    // Calculate expected cash after logged expenses
+    const totalLoggedExpenses = dayExpensesTotal + fuel
+    const expectedCash = appEarning - totalLoggedExpenses
+    const balanceDiff = actualAccounted - expectedCash
+
     const netEarnings = actualAccounted - fuel
     const earningPerKm = totalDist > 0 ? actualAccounted / totalDist : 0
 
     const prefFuelPerKm = prefs ? (prefs.petrol_price_per_liter || 370) / Math.max(prefs.fuel_efficiency_km_per_liter || 30, 1) : 0
     const autoFuelCost = totalDist > 0 ? totalDist * prefFuelPerKm : 0
-    const effectiveFuel = fuel > 0 ? fuel : autoFuelCost
     const serviceCostPerDay = prefs ? (prefs.bike_service_cost_monthly || 3000) / 30 : 0
-    const totalDailyExpenses = effectiveFuel + serviceCostPerDay
-    const trueNetIncome = actualAccounted - totalDailyExpenses
+    const trueNetIncome = appEarning - totalLoggedExpenses - autoFuelCost - serviceCostPerDay
     const dailyTarget = prefs?.daily_income_target || 5000
-    const goalProgress = Math.min(100, (actualAccounted / dailyTarget) * 100)
+    const goalProgress = Math.min(100, (trueNetIncome / dailyTarget) * 100)
 
     const saveMain = async () => {
         setSaving(true)
@@ -556,9 +573,10 @@ export default function IncomePage() {
                             <ReportRow label="Distance Traveled" value={`${totalDist.toFixed(1)} km`} />
                             <ReportRow label="App Total Earning" value={fmt(appEarning)} />
                             <ReportRow label="Previous Wallet" value={fmt(prevWallet)} />
+                            <ReportRow label={`Logged Expenses ${fuel > 0 || dayExpensesTotal > 0 ? '(incl. Fuel)' : ''}`} value={`-${fmt(totalLoggedExpenses)}`} color="#E8854A" />
                             <ReportRow label="" value="" divider />
                             <ReportRow
-                                label={balanceDiff >= 0 ? 'Cash Tip' : 'Cash Short'}
+                                label={balanceDiff >= 0 ? 'Cash Tip / Extra' : 'Cash Short'}
                                 value={`${balanceDiff >= 0 ? '+' : ''}${fmt(balanceDiff)}`}
                                 color={balanceDiff >= 0 ? '#1DB98A' : '#E05555'}
                                 bold
@@ -567,7 +585,7 @@ export default function IncomePage() {
                             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, margin: '4px 0' }}>
                                 Expenses from Preferences
                             </div>
-                            <ReportRow label="Fuel" value={`-${fmt(effectiveFuel)}`} color="#E8854A" />
+                            <ReportRow label="Fuel Cost (KM)" value={`-${fmt(autoFuelCost)}`} color="#E8854A" />
                             <ReportRow label="Bike Service /day" value={`-${fmt(serviceCostPerDay)}`} color="#D4A843" />
                             <ReportRow label="" value="" divider />
                             <ReportRow label="True Net Income" value={fmt(trueNetIncome)} color={trueNetIncome >= 0 ? '#1DB98A' : '#E05555'} bold />
