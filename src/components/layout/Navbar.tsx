@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, TrendingUp, Receipt, Landmark, CreditCard, Settings } from 'lucide-react'
+import { Home, TrendingUp, Receipt, Landmark, CreditCard, Settings, Brain } from 'lucide-react'
 
 const NAV_ITEMS = [
     { href: '/', label: 'Home', icon: Home },
@@ -9,6 +9,7 @@ const NAV_ITEMS = [
     { href: '/expenses', label: 'Expenses', icon: Receipt },
     { href: '/banking', label: 'Banking', icon: Landmark },
     { href: '/liabilities', label: 'Debts', icon: CreditCard },
+    { href: '/ai-advisor', label: 'AI Plan', icon: Brain },
     { href: '/preferences', label: 'Settings', icon: Settings },
 ]
 

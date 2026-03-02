@@ -11,7 +11,7 @@ import {
 } from 'recharts'
 import {
   Wallet, DollarSign, ShieldCheck, Zap,
-  Wrench, TrendingUp, AlertTriangle, CheckCircle2, Activity
+  Wrench, TrendingUp, AlertTriangle, CheckCircle2, Activity, Clock
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -182,6 +182,83 @@ export default function DashboardPage() {
     fetchData()
   }
 
+  // Work Hours Tracker State
+  const [workStart, setWorkStart] = useState<number | null>(null)
+  const [breakStart, setBreakStart] = useState<number | null>(null)
+  const [totalBreakTime, setTotalBreakTime] = useState<number>(0)
+  const [isWorking, setIsWorking] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
+  const [elapsedWorkTime, setElapsedWorkTime] = useState<number>(0)
+
+  // Timer Effect for Work Hours
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (isWorking && !isPaused && workStart) {
+      interval = setInterval(() => {
+        const now = Date.now()
+        setElapsedWorkTime(now - workStart - totalBreakTime)
+      }, 1000)
+    }
+    return () => clearInterval(interval)
+  }, [isWorking, isPaused, workStart, totalBreakTime])
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000)
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  const handleStartWork = () => {
+    if (!isWorking) {
+      setWorkStart(Date.now())
+      setTotalBreakTime(0)
+      setElapsedWorkTime(0)
+    }
+    setIsWorking(true)
+    setIsPaused(false)
+    if (breakStart) {
+      setTotalBreakTime(prev => prev + (Date.now() - breakStart))
+      setBreakStart(null)
+    }
+  }
+
+  const handlePauseWork = () => {
+    if (isWorking && !isPaused) {
+      setIsPaused(true)
+      setBreakStart(Date.now())
+    }
+  }
+
+  const handleStopWork = () => {
+    setIsWorking(false)
+    setIsPaused(false)
+    setWorkStart(null)
+    setBreakStart(null)
+  }
+
+  // Fuel Consumption Calculator State
+  const [fuelStartKm, setFuelStartKm] = useState('')
+  const [fuelEndKm, setFuelEndKm] = useState('')
+  const [fuelLiters, setFuelLiters] = useState('')
+  const [fuelEfficiencyResult, setFuelEfficiencyResult] = useState<number | null>(null)
+
+  const handleCalculateFuel = () => {
+    const start = parseFloat(fuelStartKm)
+    const end = parseFloat(fuelEndKm)
+    const liters = parseFloat(fuelLiters)
+
+    if (isNaN(start) || isNaN(end) || isNaN(liters) || liters <= 0 || end <= start) {
+      alert('Please enter valid numbers. End KM must be greater than Start KM, and Liters must be greater than 0.')
+      return
+    }
+
+    const distance = end - start
+    const efficiency = distance / liters
+    setFuelEfficiencyResult(efficiency)
+  }
+
   if (!prefs) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'rgba(255,255,255,0.4)' }}>
@@ -342,6 +419,89 @@ export default function DashboardPage() {
           efficiency={efficiency}
           pricePerLiter={petrolPrice}
         />
+
+        {/* Fuel Consumption Calculator */}
+        <div className="divider" style={{ margin: '16px 0' }} />
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Actual Consumption Calculator</div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <div className="field-label" style={{ fontSize: 10 }}>Previous Odo (KM)</div>
+            <input type="number" className="input-field" placeholder="e.g. 1500" value={fuelStartKm} onChange={e => setFuelStartKm(e.target.value)} />
+          </div>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <div className="field-label" style={{ fontSize: 10 }}>Current Odo (KM)</div>
+            <input type="number" className="input-field" placeholder="e.g. 1550" value={fuelEndKm} onChange={e => setFuelEndKm(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'end' }}>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <div className="field-label" style={{ fontSize: 10 }}>Liters Added</div>
+            <input type="number" className="input-field" placeholder="e.g. 2.5" value={fuelLiters} onChange={e => setFuelLiters(e.target.value)} />
+          </div>
+          <button className="btn btn-orange" onClick={handleCalculateFuel} style={{ padding: '8px 12px', height: 42 }}>Calculate</button>
+        </div>
+
+        {fuelEfficiencyResult !== null && (
+          <div style={{
+            marginTop: 12, padding: 12, borderRadius: 8,
+            background: 'rgba(232, 133, 74, 0.1)', border: '1px solid rgba(232, 133, 74, 0.2)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Actual Efficiency</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#E8854A' }}>{fuelEfficiencyResult.toFixed(2)} km/L</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Total Distance</div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{(parseFloat(fuelEndKm) - parseFloat(fuelStartKm)).toFixed(1)} km</div>
+            </div>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Work Hours Tracker */}
+      <GlassCard accentColor="#7B74FF" style={{ marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={16} color="#7B74FF" />
+          Work Hours Tracker
+        </div>
+
+        <div style={{
+          background: 'rgba(0,0,0,0.2)', borderRadius: 12, padding: 16, textAlign: 'center', marginBottom: 16,
+          border: '1px solid rgba(123, 116, 255, 0.2)'
+        }}>
+          <div style={{ fontSize: 32, fontWeight: 800, fontFamily: 'monospace', color: isPaused ? '#D4A843' : (isWorking ? '#1DB98A' : '#7B74FF') }}>
+            {formatTime(elapsedWorkTime)}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+            {isPaused ? 'ON BREAK' : (isWorking ? 'WORKING' : 'NOT STARTED')}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          {!isWorking ? (
+            <button className="btn" style={{ background: '#1DB98A', gridColumn: 'span 3' }} onClick={handleStartWork}>
+              Start Work
+            </button>
+          ) : (
+            <>
+              {!isPaused ? (
+                <button className="btn" style={{ background: '#D4A843' }} onClick={handlePauseWork}>
+                  Break
+                </button>
+              ) : (
+                <button className="btn" style={{ background: '#1DB98A' }} onClick={handleStartWork}>
+                  Resume
+                </button>
+              )}
+              <button className="btn" style={{ background: '#E05555', gridColumn: 'span 2' }} onClick={handleStopWork}>
+                End Work
+              </button>
+            </>
+          )}
+        </div>
       </GlassCard>
 
       {/* Service Reminder */}
